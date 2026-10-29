@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2024.2.0 (test)' version='18.1'>
+  <datasources>
+    <datasource caption='Sales model' inline='true' name='federated.sales' version='18.1'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection caption='dwh' name='sqlserver.abc'>
+            <connection class='sqlserver' dbname='DWH' schema='dbo' server='sql01.company.local' />
+          </named-connection>
+        </named-connections>
+        <_.fcp.ObjectModelEncapsulateLegacy.true...relation type='collection'>
+          <relation connection='sqlserver.abc' name='Orders' table='[dbo].[Orders]' type='table' />
+          <relation connection='sqlserver.abc' name='Targets' type='text'>SELECT region, target FROM dbo.targets WHERE year = 2026</relation>
+        </_.fcp.ObjectModelEncapsulateLegacy.true...relation>
+        <metadata-records>
+          <metadata-record class='column'><remote-name>OrderID</remote-name><local-name>[Order ID]</local-name><parent-name>[Orders]</parent-name><local-type>integer</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>Amount</remote-name><local-name>[Amount]</local-name><parent-name>[Orders]</parent-name><local-type>real</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>CustomerID</remote-name><local-name>[CustomerID]</local-name><parent-name>[Orders]</parent-name><local-type>integer</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>CustomerID</remote-name><local-name>[CustomerID (Customers)]</local-name><parent-name>[Customers]</parent-name><local-type>integer</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>Region</remote-name><local-name>[Region]</local-name><parent-name>[Customers]</parent-name><local-type>string</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>region</remote-name><local-name>[region (Targets)]</local-name><parent-name>[Targets]</parent-name><local-type>string</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>target</remote-name><local-name>[target]</local-name><parent-name>[Targets]</parent-name><local-type>real</local-type></metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Amount vs Target' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='SUM([Amount]) / SUM([target])' />
+      </column>
+      <extract count='-1' enabled='true' units='records'>
+        <connection class='hyper' dbname='Data/Extracts/sales.hyper'>
+          <relation name='Extract' table='[Extract].[Extract]' type='table' />
+          <metadata-records>
+            <metadata-record class='column'><remote-name>Amount</remote-name><local-name>[Amount]</local-name><parent-name>[Extract]</parent-name><local-type>real</local-type></metadata-record>
+          </metadata-records>
+        </connection>
+      </extract>
+      <_.fcp.ObjectModelEncapsulateLegacy.true...object-graph>
+        <objects>
+          <object caption='Orders' id='Orders_1'>
+            <properties context=''>
+              <relation join='left' type='join'>
+                <clause type='join'>
+                  <expression op='='>
+                    <expression op='[Orders].[CustomerID]' />
+                    <expression op='[Customers].[CustomerID]' />
+                  </expression>
+                </clause>
+                <relation connection='sqlserver.abc' name='Orders' table='[dbo].[Orders]' type='table' />
+                <relation connection='sqlserver.abc' name='Customers' table='[dbo].[Customers]' type='table' />
+              </relation>
+            </properties>
+            <properties context='extract'>
+              <relation name='Extract' table='[Extract].[Extract]' type='table' />
+            </properties>
+          </object>
+          <object caption='Targets' id='Targets_2'>
+            <properties context=''>
+              <relation connection='sqlserver.abc' name='Targets' type='text'>SELECT region, target FROM dbo.targets WHERE year = 2026</relation>
+            </properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='>
+              <expression op='[Region]' />
+              <expression op='[region (Targets)]' />
+            </expression>
+            <first-end-point object-id='Orders_1' />
+            <second-end-point object-id='Targets_2' />
+          </relationship>
+        </relationships>
+      </_.fcp.ObjectModelEncapsulateLegacy.true...object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Performance'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.sales'>
+            <column-instance column='[Calculation_1]' derivation='User' name='[usr:Calculation_1:qk]' pivot='key' type='quantitative' />
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+        </view>
+      </table>
+    </worksheet>
+  </worksheets>
+</workbook>

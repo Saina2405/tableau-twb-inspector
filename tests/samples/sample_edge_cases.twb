@@ -1,0 +1,88 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<workbook source-build='2024.2.0 (test)' version='18.1'>
+  <datasources>
+    <datasource hasconnection='false' inline='true' name='Parameters' version='18.1'>
+      <column caption='Target' datatype='real' name='[Parameter 1]' param-domain-type='range' role='measure' type='quantitative' value='100'>
+        <calculation class='tableau' formula='100' />
+        <range granularity='10' max='500' min='0' />
+      </column>
+      <column caption='Unused Param' datatype='string' name='[Parameter 2]' param-domain-type='list' role='measure' type='nominal' value='&quot;A&quot;'>
+        <calculation class='tableau' formula='&quot;A&quot;' />
+        <members><member value='&quot;A&quot;' /><member value='&quot;B&quot;' /></members>
+      </column>
+    </datasource>
+    <datasource caption='Orders' inline='true' name='federated.orders' version='18.1'>
+      <connection class='federated'>
+        <metadata-records>
+          <metadata-record class='column'><remote-name>Sales</remote-name><local-name>[Sales]</local-name><local-type>real</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>Profit</remote-name><local-name>[Profit]</local-name><local-type>real</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>Region</remote-name><local-name>[Region]</local-name><local-type>string</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>Unused Col</remote-name><local-name>[Unused Col]</local-name><local-type>string</local-type></metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Base' datatype='real' name='[Calculation_1]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Sales] * 2' />
+      </column>
+      <column caption='Twelve' datatype='real' name='[Calculation_12]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Calculation_1] + [Profit] // not [Region]&#10;' />
+      </column>
+      <column caption='Top' datatype='real' name='[Calculation_13]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='IF [Calculation_12] &gt; [Parameters].[Parameter 1] THEN &quot;[Sales] high&quot; ELSE &quot;low&quot; END' />
+      </column>
+      <column caption='Orphan' datatype='real' name='[Calculation_20]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{ FIXED [Region] : SUM([Sales]) }' />
+      </column>
+      <column caption='Orphan copy' datatype='real' name='[Calculation_21]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{FIXED [Region]:SUM([Sales])}  // same thing' />
+      </column>
+      <column caption='Odd ] name' datatype='real' name='[Calc]]x]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Sales] + 1' />
+      </column>
+      <column caption='Uses odd' datatype='real' name='[Calculation_30]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Calc]]x] * [federated.returns].[Returned]' />
+      </column>
+    </datasource>
+    <datasource caption='Returns' inline='true' name='federated.returns' version='18.1'>
+      <column datatype='string' name='[Returned]' role='dimension' type='nominal' />
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sheet A'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.orders'>
+            <column caption='Top' datatype='real' name='[Calculation_13]' role='measure' type='quantitative' />
+            <column caption='Twelve' datatype='real' name='[Calculation_12]' role='measure' type='quantitative' />
+            <column-instance column='[Calculation_13]' derivation='User' name='[usr:Calculation_13:nk]' pivot='key' type='nominal' />
+            <column-instance column='[Region]' derivation='None' name='[none:Region:nk]' pivot='key' type='nominal' />
+          </datasource-dependencies>
+          <filter class='categorical' column='[federated.orders].[none:Region:nk]' />
+        </view>
+        <rows>[federated.orders].[usr:Calculation_13:nk]</rows>
+      </table>
+    </worksheet>
+    <worksheet name='Sheet B'>
+      <table>
+        <view>
+          <datasource-dependencies datasource='federated.orders'>
+            <column-instance column='[Calculation_30]' derivation='Sum' name='[sum:Calculation_30:qk]' pivot='key' type='quantitative' />
+          </datasource-dependencies>
+        </view>
+        <cols>[federated.orders].[sum:Calculation_30:qk]</cols>
+      </table>
+    </worksheet>
+  </worksheets>
+  <dashboards>
+    <dashboard name='Main'>
+      <zones>
+        <zone id='1' type-v2='layout-basic'>
+          <zone id='2' name='Sheet A' />
+          <zone id='3' param='[Parameters].[Parameter 1]' type-v2='paramctrl' />
+        </zone>
+      </zones>
+    </dashboard>
+  </dashboards>
+  <windows>
+    <window class='worksheet' hidden='true' name='Sheet A' />
+  </windows>
+</workbook>
