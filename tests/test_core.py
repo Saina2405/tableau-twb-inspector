@@ -125,6 +125,44 @@ class DataSourceTablesTest(unittest.TestCase):
         self.assertEqual(by_name(self.L, "Order ID").status, STATUS_UNUSED)
 
 
+class PublishedDataSourceTest(unittest.TestCase):
+    """A workbook that connects to a published data source (Tableau Server/Cloud)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.L = analyze_workbook(os.path.join(SAMPLES, "sample_published.twb"))
+        cls.T = {t.name: t for t in cls.L.tables}
+
+    def test_logical_tables_instead_of_sqlproxy(self):
+        self.assertEqual(set(self.T), {"ORDERS", "STORES"})
+        self.assertEqual(self.T["ORDERS"].physical, "DWH.FACT_ORDERS")
+        self.assertEqual(self.T["STORES"].physical, "DWH.DIM_STORE")
+        self.assertEqual(self.T["ORDERS"].table_type, "Published table")
+
+    def test_where_it_is_published(self):
+        t = self.T["ORDERS"]
+        self.assertEqual((t.published_source, t.server, t.site, t.project),
+                         ("Shop Sales", "tableau.example.com", "Analytics", "Finance"))
+        self.assertEqual(self.L.summary()["Published data sources"], 1)
+
+    def test_columns_linked_by_table_id_and_name(self):
+        names = {t: sorted(self.L.fields[k].name for k in tb.columns) for t, tb in self.T.items()}
+        # Amount has no table id, only the table name Tableau stores with it
+        self.assertEqual(names["ORDERS"], ["Amount", "Order Id", "Store Id"])
+        self.assertEqual(names["STORES"], ["Internal Code", "Region", "Store Id (Stores)"])
+
+    def test_captions_hidden_and_origin(self):
+        self.assertTrue(by_name(self.L, "Internal Code").hidden)
+        self.assertEqual(by_name(self.L, "Net Amount").defined_in, "Published data source")
+        self.assertEqual(by_name(self.L, "Old Test").defined_in, "Workbook")
+        s = self.L.summary()
+        self.assertEqual((s["Unused calculated fields"], s["Unused workbook calculations"]), (3, 1))
+
+    def test_relationship_keys_are_not_unused(self):
+        from twb_inspector.core import STATUS_JOIN
+        self.assertEqual(by_name(self.L, "Store Id").status, STATUS_JOIN)
+
+
 class DemoWorkbookTest(unittest.TestCase):
     """The demo in examples/ is used in the README; keep it meaningful."""
 

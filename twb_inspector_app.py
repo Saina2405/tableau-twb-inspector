@@ -107,17 +107,22 @@ def _soft_lower(text: str) -> str:
     return text if first.isupper() else text[:1].lower() + text[1:]
 
 
-def findings(lineage, limit: int = 6):
+def findings(lineage, limit: int = 8):
     """Most useful things to look at first, as (bold part, rest) pairs."""
     fields = lineage.fields.values()
     out = []
-    unused_calcs = sorted((f for f in fields if f.kind == "Calculated" and f.status == STATUS_UNUSED),
+    unused_calcs = sorted((f for f in fields if f.kind == "Calculated" and f.status == STATUS_UNUSED
+                           and f.defined_in != "Published data source"),
                           key=lambda f: (-len(f.flags), f.name.lower()))
-    for f in unused_calcs[:3]:
+    for f in unused_calcs[:2]:
         extra = [_soft_lower(fl.split(" (")[0]) for fl in f.flags if not fl.startswith("Same formula")]
         out.append((f.name, "unused" + (", " + ", ".join(extra[:2]) if extra else "")))
-    if len(unused_calcs) > 3:
-        out.append((f"{len(unused_calcs) - 3} more unused calculations", "see the Unused sheet"))
+    if len(unused_calcs) > 2:
+        out.append((f"{len(unused_calcs) - 2} more unused calculations", "see the Unused sheet"))
+    from_pub = [f for f in fields if f.kind == "Calculated" and f.status == STATUS_UNUSED
+                and f.defined_in == "Published data source"]
+    if from_pub:
+        out.append((f"{len(from_pub)} unused in the published source", "other workbooks may use them"))
     params = [f for f in fields if f.kind == "Parameter" and f.status == STATUS_UNUSED]
     if params:
         out.append((f"{len(params)} unused parameter{'s' if len(params) > 1 else ''}",
@@ -125,10 +130,15 @@ def findings(lineage, limit: int = 6):
     for gid, keys in list(lineage.duplicate_groups.items())[:2]:
         names = [lineage.fields[k].name for k in keys]
         out.append(("Same formula", " = ".join(names[:3]) + (" …" if len(names) > 3 else "")))
-    raw = [f for f in fields if f.kind == "Raw" and f.status == STATUS_UNUSED]
+    raw = [f for f in fields if f.kind == "Raw" and f.status == STATUS_UNUSED and not f.hidden]
     if raw:
-        out.append((f"{len(raw)} raw field{'s' if len(raw) > 1 else ''} never used",
-                    "hide them to shrink the extract" if len(raw) > 1 else "hide it to shrink the extract"))
+        out.append((f"{len(raw)} column{'s' if len(raw) > 1 else ''} never used and not hidden",
+                    "hide them to tidy the Data pane" if len(raw) > 1 else "hide it to tidy the Data pane"))
+    hidden = [f for f in fields if f.hidden]
+    if hidden:
+        hidden_unused = sum(1 for f in hidden if f.status == STATUS_UNUSED)
+        out.append((f"{len(hidden)} hidden field{'s' if len(hidden) > 1 else ''}",
+                    f"{hidden_unused} unused, {len(hidden) - hidden_unused} still used in the workbook"))
     sql = [t for t in lineage.tables if t.table_type == "Custom SQL"]
     if sql:
         out.append((f"{len(sql)} Custom SQL quer{'ies' if len(sql) > 1 else 'y'}", ", ".join(t.name for t in sql[:3])))
@@ -532,7 +542,9 @@ class TWBInspector(_Base):
         ctk.CTkLabel(fr, text=os.path.basename(path), font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
                      text_color=TEXT, anchor="w").pack(anchor="w", padx=6)
         version = (L.tableau_version or "").split(" (")[0]
-        sub = (f"{s['Datasources']} data source{'s' if s['Datasources'] != 1 else ''} · {s['Tables']} table"
+        pub = s.get("Published data sources", 0)
+        sub = (f"{s['Datasources']} data source{'s' if s['Datasources'] != 1 else ''}"
+               + (f" ({pub} published)" if pub else "") + f" · {s['Tables']} table"
                f"{'s' if s['Tables'] != 1 else ''} · {s['Worksheets']} worksheets · {s['Dashboards']} dashboard"
                f"{'s' if s['Dashboards'] != 1 else ''}" + (f" · Tableau {version}" if version else ""))
         ctk.CTkLabel(fr, text=sub, font=self.f_small, text_color=MUTED, anchor="w").pack(anchor="w", padx=6, pady=(0, 12))
@@ -541,7 +553,8 @@ class TWBInspector(_Base):
         tiles.pack(fill="x", padx=4)
         for i, (label, value, warn) in enumerate([
                 ("Calculations", s["Calculated fields"], False),
-                ("Unused calcs", s["Unused calculated fields"], True),
+                ("Unused (workbook)" if s.get("Published data sources") else "Unused calcs",
+                 s["Unused workbook calculations"], True),
                 ("Duplicates", s["Duplicate calculation groups"], True),
                 ("Review flags", s["Calculations with flags"], False)]):
             tiles.grid_columnconfigure(i, weight=1, uniform="t")
@@ -597,7 +610,7 @@ class TWBInspector(_Base):
             "Finds unused fields, duplicate calculations and lineage in Tableau workbooks, "
             "and lists the tables each data source reads.\n\n"
             "Everything runs on this computer. Workbooks are read, never changed or uploaded.\n\n"
-            "Settings: " + _settings_path())
+            "Free and open source:\ngithub.com/Saina2405/tableau-twb-inspector")
 
     def _persist(self):
         self.settings.update({"excel": self.excel_var.get(), "html": self.html_var.get(),

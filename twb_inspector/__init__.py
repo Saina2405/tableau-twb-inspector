@@ -8,7 +8,7 @@ data source tables in Tableau workbooks (.twb / .twbx).
     process_workbook("Sales.twbx", "outputs")       # + Excel audit and HTML diagram
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 APP_NAME = "TWB Inspector"
 
 from .core import analyze_workbook, find_workbooks, WorkbookLineage  # noqa: E402

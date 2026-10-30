@@ -79,6 +79,9 @@ class Field:
     inferred: bool = False        # referenced but never declared in the file
     source_table: str = ""        # table the raw column comes from, e.g. "Orders"
     source_column: str = ""       # column name in the source database/file
+    object_id: str = ""           # logical table (relationship model) the column belongs to
+    family: str = ""              # logical table name Tableau stores with the column
+    defined_in: str = ""          # "Workbook" or "Published data source"
     deps: Set[str] = dc_field(default_factory=set)        # fields this one uses
     used_by: Set[str] = dc_field(default_factory=set)     # fields that use this one
     unresolved: List[str] = dc_field(default_factory=list)
@@ -135,6 +138,10 @@ class Table:
     relationships: List[str] = dc_field(default_factory=list)  # logical relationships of its logical table
     notes: List[str] = dc_field(default_factory=list)
     columns: List[str] = dc_field(default_factory=list)        # field keys of its columns
+    object_id: str = ""           # logical table id in the relationship model
+    published_source: str = ""    # name of the published data source it lives in
+    site: str = ""                # Tableau Server/Cloud site
+    project: str = ""             # Tableau Server/Cloud project
 
     @property
     def key(self) -> str:
@@ -152,6 +159,7 @@ class WorkbookLineage:
     duplicate_groups: Dict[str, List[str]]           # group id -> field keys
     warnings: List[str]
     tables: List[Table] = dc_field(default_factory=list)
+    datasource_info: Dict[str, Dict[str, str]] = dc_field(default_factory=dict)
 
     # Convenience views ---------------------------------------------------- #
     def fields_of_kind(self, *kinds: str) -> List[Field]:
@@ -166,6 +174,7 @@ class WorkbookLineage:
         params = self.fields_of_kind("Parameter")
         return {
             "Datasources": len([d for d in self.datasources if d != PARAMETERS_DS]),
+            "Published data sources": len([d for d in self.datasource_info.values() if d.get("published")]),
             "Tables": len(self.tables),
             "Custom SQL queries": len([t for t in self.tables if t.table_type == "Custom SQL"]),
             "Fields (total)": len(self.fields),
@@ -177,10 +186,13 @@ class WorkbookLineage:
             "Dashboards": len([d for d in self.dashboards.values() if not d.is_story]),
             "Stories": len([d for d in self.dashboards.values() if d.is_story]),
             "Unused calculated fields": len(self.unused("Calculated")),
+            "Unused workbook calculations": len([f for f in self.unused("Calculated")
+                                                 if f.defined_in != "Published data source"]),
             "Unused parameters": len(self.unused("Parameter")),
             "Unused raw fields": len(self.unused("Raw")),
             "Duplicate calculation groups": len(self.duplicate_groups),
             "Calculations with flags": len([f for f in calcs if f.flags]),
+            "Hidden fields": len([f for f in self.fields.values() if f.hidden]),
         }
 
 
@@ -496,6 +508,40 @@ def _walk_relation(rel: ET.Element, out: List[dict], joins: List[str], note: str
                 "connection": rel.attrib.get("connection", ""), "sql": sql, "note": note})
 
 
+_OBJECT_ID_RE = re.compile(r"^(?P<cap>.+?) \((?P<phys>[^()]+)\)_[0-9A-Fa-f]{32}$")
+_PROJECT_RE = re.compile(r"\s*\|\s*Project\s*:\s*(?P<project>.+)$", re.I)
+
+
+def physical_from_object_id(object_id: str) -> str:
+    """'ORDERS (PRD.ORDERS)_9F2C…' -> 'PRD.ORDERS' (Tableau stores the physical name in the id)."""
+    m = _OBJECT_ID_RE.match(object_id.strip("[]"))
+    return m.group("phys") if m else ""
+
+
+def published_info(ds: ET.Element) -> Dict[str, str]:
+    """Where a published data source lives: name, server, site, project, revision."""
+    conn = next((c for c in ds if _tag_is(c, "connection")), None)
+    if conn is None or conn.attrib.get("class") != "sqlproxy":
+        return {}
+    repo = next((c for c in ds if _tag_is(c, "repository-location")), None)
+    repo_attr = dict(repo.attrib) if repo is not None else {}
+    friendly = conn.attrib.get("server-ds-friendly-name") or ds.attrib.get("caption") or conn.attrib.get("dbname", "")
+    m = _PROJECT_RE.search(friendly)
+    name = _PROJECT_RE.sub("", friendly).strip() or friendly
+    server = conn.attrib.get("server", "")
+    if conn.attrib.get("port") not in (None, "", "80", "443"):
+        server += ":" + conn.attrib["port"]
+    return {
+        "published": "yes",
+        "name": name,
+        "project": m.group("project").strip() if m else "",
+        "server": server,
+        "site": repo_attr.get("site", ""),
+        "content_name": repo_attr.get("id") or conn.attrib.get("dbname", ""),
+        "revision": repo_attr.get("revision", ""),
+    }
+
+
 def parse_datasource_tables(ds: ET.Element, ds_name: str, ds_caption: str) -> List[Table]:
     """All tables a datasource reads from, with connection details, joins and relationships."""
     conn = next((c for c in ds if _tag_is(c, "connection")), None)
@@ -523,7 +569,7 @@ def parse_datasource_tables(ds: ET.Element, ds_name: str, ds_caption: str) -> Li
         live_or_extract = "Extract"
 
     # Logical tables (relationship model, Tableau 2020.2+)
-    groups: List[Tuple[str, ET.Element]] = []     # (logical table caption, relation element)
+    groups: List[Tuple[str, ET.Element, str]] = []  # (logical table caption, relation element, object id)
     relationships: List[Tuple[str, str, str]] = []
     graph = next((c for c in ds if _tag_is(c, "object-graph")), None)
     if graph is not None:
@@ -539,7 +585,7 @@ def parse_datasource_tables(ds: ET.Element, ds_name: str, ds_caption: str) -> Li
             main_props = [p for p in props_list if p.attrib.get("context", "") == ""] or props_list[:1]
             for props in main_props:
                 for rel in _children(props, "relation"):
-                    groups.append((cap, rel))
+                    groups.append((cap, rel, obj.attrib.get("id", "")))
         rels_root = next((c for c in graph if _tag_is(c, "relationships")), None)
         for r in (list(rels_root) if rels_root is not None else []):
             a = r.find("first-end-point")
@@ -554,11 +600,29 @@ def parse_datasource_tables(ds: ET.Element, ds_name: str, ds_caption: str) -> Li
         # Prefer the legacy (non-collection) variant if Tableau wrote both.
         rels = _children(conn, "relation")
         legacy = [r for r in rels if ".true..." not in r.tag] or rels
-        groups = [("", r) for r in legacy]
+        groups = [("", r, "") for r in legacy]
 
-    tables: List[Table] = []
+    pub = published_info(ds)
+    if pub:
+        # A published data source: the workbook knows its logical tables (and the physical
+        # table hidden in each table's id), not the joins or SQL inside them.
+        objects = [(cap, oid) for cap, _rel, oid in groups if oid] or [(pub["name"], "")]
+        tables: List[Table] = []
+        for cap, oid in dict.fromkeys(objects):
+            rel_text = [f"{a} ↔ {b}" + (f" on {e}" if e else "") for a, b, e in relationships if cap in (a, b)]
+            tables.append(Table(
+                datasource=ds_name, datasource_caption=ds_caption, name=cap,
+                physical=physical_from_object_id(oid), table_type="Published table" if oid else "Published data source",
+                logical_table=cap if oid else "", connection_type="Tableau published data source",
+                server=pub["server"], database=pub["content_name"], live_or_extract=live_or_extract,
+                relationships=rel_text, object_id=oid, published_source=pub["name"],
+                site=pub["site"], project=pub["project"],
+                notes=["Joins and Custom SQL inside a published data source are stored on the server, not in the workbook"]))
+        return tables
+
+    tables = []
     seen = set()
-    for logical, rel in groups:
+    for logical, rel, object_id in groups:
         leaves: List[dict] = []
         joins: List[str] = []
         _walk_relation(rel, leaves, joins)
@@ -576,7 +640,7 @@ def parse_datasource_tables(ds: ET.Element, ds_name: str, ds_caption: str) -> Li
                       connection_type=cls, server=info.get("server", ""),
                       database=info.get("dbname") or info.get("filename", ""),
                       schema=info.get("schema", ""), sql=leaf["sql"], live_or_extract=live_or_extract,
-                      joins=leaf.get("joins", []), relationships=rel_text)
+                      joins=leaf.get("joins", []), relationships=rel_text, object_id=object_id)
             if leaf.get("note"):
                 t.notes.append(leaf["note"])
             if cls in ("dataengine", "hyper"):
@@ -616,6 +680,7 @@ def analyze_workbook(path: str) -> WorkbookLineage:
     seg_cache: Dict[str, list] = {}
 
     tables: List[Table] = []
+    datasource_info: Dict[str, Dict[str, str]] = {}
     ds_root = root.find("datasources")
     ds_elems = list(ds_root) if ds_root is not None else []
 
@@ -627,6 +692,12 @@ def analyze_workbook(path: str) -> WorkbookLineage:
         ds_caption = ds.attrib.get("caption") or (PARAMETERS_DS if ds_name == PARAMETERS_DS else ds_name)
         datasources[ds_name] = ds_caption
         is_param_ds = ds_name == PARAMETERS_DS
+        ds_pub = published_info(ds)
+        is_published = bool(ds_pub)
+        datasource_info[ds_name] = {"caption": ds_caption, "connection": "", **ds_pub}
+        conn_el = next((c for c in ds if _tag_is(c, "connection")), None)
+        if conn_el is not None:
+            datasource_info[ds_name]["connection"] = conn_el.attrib.get("class", "")
 
         def add_field(internal: str, **kw) -> Field:
             k = _key(ds_name, internal)
@@ -646,14 +717,25 @@ def analyze_workbook(path: str) -> WorkbookLineage:
         # Raw columns known only from the connection metadata
         records = list(_iter_skip(ds, "metadata-record")) or list(ds.iter("metadata-record"))
         for rec in records:
-            if rec.attrib.get("class") != "column":
+            if rec.attrib.get("class") not in ("column", "measure"):
                 continue
             local = (rec.findtext("local-name") or "").strip()
             if not local or _is_internal_column(local):
                 continue
-            f = add_field(local, kind="Raw", datatype=(rec.findtext("local-type") or "").strip())
-            if not f.source_table:
-                f.source_table = _strip((rec.findtext("parent-name") or "").strip())
+            is_calc = (rec.findtext("remote-type") or "").strip() == "-1"   # calculation defined in a published source
+            f = add_field(local, kind="Calculated" if is_calc else "Raw",
+                          name=(rec.findtext("caption") or "").strip() or None,
+                          datatype=(rec.findtext("local-type") or "").strip())
+            f.defined_in = f.defined_in or ("Published data source" if is_published else "")
+            if (rec.findtext("hidden") or "").strip() == "true":
+                f.hidden = True
+            if not f.object_id:
+                f.object_id = (rec.findtext("object-id") or "").strip().strip("[]")
+            if not f.family:
+                f.family = (rec.findtext("family") or "").strip()
+            if not f.source_table and not is_calc:
+                parent = _strip((rec.findtext("parent-name") or "").strip())
+                f.source_table = "" if parent == "sqlproxy" else parent
                 f.source_column = (rec.findtext("remote-name") or "").strip()
 
         # Declared columns (raw fields with settings, calculations, parameters, bins)
@@ -706,7 +788,10 @@ def analyze_workbook(path: str) -> WorkbookLineage:
             f.kind = kind
             if col.attrib.get("caption"):
                 f.name = col.attrib["caption"]
-            f.hidden = col.attrib.get("hidden", "false") == "true"
+            if "hidden" in col.attrib:
+                f.hidden = col.attrib["hidden"] == "true"
+            if not f.defined_in and kind != "Parameter":
+                f.defined_in = "Published data source" if (is_published and kind == "Raw") else "Workbook"
             if calc is not None and calc.attrib.get("column"):
                 # categorical bins / groups point at their source column
                 f.formula = f.formula or calc.attrib["column"]
@@ -724,11 +809,20 @@ def analyze_workbook(path: str) -> WorkbookLineage:
         if not is_param_ds:
             tables.extend(parse_datasource_tables(ds, ds_name, ds_caption))
 
-    # Link raw columns to their table
-    for t in tables:
-        for f in fields.values():
-            if f.datasource == t.datasource and f.kind == "Raw" and f.source_table == t.name:
-                t.columns.append(f.key)
+    # Link raw columns to their table: by physical table name (parent-name), else by the
+    # logical table id the column belongs to (relationship model, published data sources)
+    by_object = {(t.datasource, t.object_id): t for t in tables if t.object_id}
+    for f in fields.values():
+        if f.kind != "Raw":
+            continue
+        named = [t for t in tables if t.datasource == f.datasource and t.name == f.source_table and f.source_table]
+        target = named[0] if named else by_object.get((f.datasource, f.object_id))
+        if target is None and f.family:
+            fam = [t for t in tables if t.datasource == f.datasource and f.family in (t.name, t.logical_table)]
+            target = fam[0] if len(fam) == 1 else None
+        if target is not None:
+            target.columns.append(f.key)
+            f.source_table = target.name
     # A datasource with a single table owns all its raw columns
     by_ds_tables: Dict[str, List[Table]] = defaultdict(list)
     for t in tables:
@@ -739,6 +833,13 @@ def analyze_workbook(path: str) -> WorkbookLineage:
                 if f.datasource == dsn and f.kind == "Raw":
                     tl[0].columns.append(f.key)
                     f.source_table = f.source_table or tl[0].name
+
+    # Column metadata of a published source can reveal Custom SQL inside it
+    for t in tables:
+        if t.table_type.startswith("Published") and t.columns:
+            fams = {fields[k].family for k in t.columns}
+            if any(fm.startswith("Custom SQL Query") for fm in fams):
+                t.notes.insert(0, "Built on Custom SQL inside the published data source (SQL text is on the server)")
 
     ds_names = set(datasources)
     ds_by_caption = {cap: n for n, cap in datasources.items()}
@@ -1057,6 +1158,7 @@ def analyze_workbook(path: str) -> WorkbookLineage:
         duplicate_groups=duplicate_groups,
         warnings=warnings,
         tables=tables,
+        datasource_info=datasource_info,
     )
 
 

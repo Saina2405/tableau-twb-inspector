@@ -1,0 +1,61 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!-- Invented workbook that connects to a published data source (structure as saved by Tableau 2025.x). -->
+<workbook source-build='2025.3.0 (test)' version='18.1'>
+  <datasources>
+    <datasource caption='Shop Sales | Project : Finance' inline='true' name='sqlproxy.abc123' version='18.1'>
+      <repository-location derived-from='https://tableau.example.com/t/Analytics/datasources/ShopSales?rev=1.4' id='ShopSales' path='/t/Analytics/datasources' revision='1.4' site='Analytics' />
+      <connection channel='https' class='sqlproxy' dbname='ShopSales' directory='dataserver' port='443' server='tableau.example.com' server-ds-friendly-name='Shop Sales | Project : Finance' workgroup-auth-mode='prompt'>
+        <relation name='sqlproxy' table='[sqlproxy]' type='table' />
+        <metadata-records>
+          <metadata-record class='column'><remote-name>ORDER_ID</remote-name><remote-type>129</remote-type><local-name>[ORDER_ID]</local-name><parent-name>[sqlproxy]</parent-name><caption>Order Id</caption><family>ORDERS</family><local-type>string</local-type><object-id>[ORDERS (DWH.FACT_ORDERS)_0123456789ABCDEF0123456789ABCDEF]</object-id></metadata-record>
+          <metadata-record class='measure'><remote-name>AMOUNT</remote-name><remote-type>5</remote-type><local-name>[AMOUNT]</local-name><parent-name>[sqlproxy]</parent-name><caption>Amount</caption><family>ORDERS</family><local-type>real</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>STORE_ID</remote-name><remote-type>20</remote-type><local-name>[STORE_ID]</local-name><parent-name>[sqlproxy]</parent-name><caption>Store Id</caption><family>ORDERS</family><local-type>integer</local-type><object-id>[ORDERS (DWH.FACT_ORDERS)_0123456789ABCDEF0123456789ABCDEF]</object-id></metadata-record>
+          <metadata-record class='column'><remote-name>STORE_ID</remote-name><remote-type>20</remote-type><local-name>[STORE_ID (STORES)]</local-name><parent-name>[sqlproxy]</parent-name><caption>Store Id (Stores)</caption><family>STORES</family><local-type>integer</local-type><object-id>[STORES (DWH.DIM_STORE)_FEDCBA9876543210FEDCBA9876543210]</object-id></metadata-record>
+          <metadata-record class='column'><remote-name>REGION</remote-name><remote-type>129</remote-type><local-name>[REGION]</local-name><parent-name>[sqlproxy]</parent-name><caption>Region</caption><family>STORES</family><local-type>string</local-type><object-id>[STORES (DWH.DIM_STORE)_FEDCBA9876543210FEDCBA9876543210]</object-id></metadata-record>
+          <metadata-record class='column'><remote-name>INTERNAL_CODE</remote-name><remote-type>129</remote-type><local-name>[INTERNAL_CODE]</local-name><parent-name>[sqlproxy]</parent-name><caption>Internal Code</caption><family>STORES</family><local-type>string</local-type><hidden>true</hidden><object-id>[STORES (DWH.DIM_STORE)_FEDCBA9876543210FEDCBA9876543210]</object-id></metadata-record>
+          <metadata-record class='column'><remote-name>Calculation_900</remote-name><remote-type>-1</remote-type><local-name>[Calculation_900]</local-name><parent-name>[sqlproxy]</parent-name><caption>Big Order</caption><local-type>boolean</local-type></metadata-record>
+          <metadata-record class='column'><remote-name>Calculation_901</remote-name><remote-type>-1</remote-type><local-name>[Calculation_901]</local-name><parent-name>[sqlproxy]</parent-name><caption>Net Amount</caption><local-type>real</local-type></metadata-record>
+        </metadata-records>
+      </connection>
+      <column caption='Big Order' datatype='boolean' name='[Calculation_900]' role='dimension' type='nominal'>
+        <calculation class='tableau' formula='[AMOUNT] &gt; 1000' />
+      </column>
+      <column caption='Net Amount' datatype='real' name='[Calculation_901]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[AMOUNT] * 0.79' />
+      </column>
+      <column caption='Amount per Region' datatype='real' name='[Calculation_950]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='{ FIXED [REGION] : SUM([AMOUNT]) }' />
+      </column>
+      <column caption='Old Test' datatype='integer' name='[Calculation_951]' role='measure' type='quantitative'>
+        <calculation class='tableau' formula='1' />
+      </column>
+      <object-graph>
+        <objects>
+          <object caption='ORDERS' id='ORDERS (DWH.FACT_ORDERS)_0123456789ABCDEF0123456789ABCDEF'>
+            <properties context=''><relation name='sqlproxy' table='[sqlproxy]' type='table' /></properties>
+          </object>
+          <object caption='STORES' id='STORES (DWH.DIM_STORE)_FEDCBA9876543210FEDCBA9876543210'>
+            <properties context=''><relation name='sqlproxy' table='[sqlproxy]' type='table' /></properties>
+          </object>
+        </objects>
+        <relationships>
+          <relationship>
+            <expression op='='><expression op='[STORE_ID]' /><expression op='[STORE_ID (STORES)]' /></expression>
+            <first-end-point object-id='ORDERS (DWH.FACT_ORDERS)_0123456789ABCDEF0123456789ABCDEF' />
+            <second-end-point object-id='STORES (DWH.DIM_STORE)_FEDCBA9876543210FEDCBA9876543210' />
+          </relationship>
+        </relationships>
+      </object-graph>
+    </datasource>
+  </datasources>
+  <worksheets>
+    <worksheet name='Sales by Region'>
+      <table><view>
+        <datasource-dependencies datasource='sqlproxy.abc123'>
+          <column-instance column='[REGION]' derivation='None' name='[none:REGION:nk]' pivot='key' type='nominal' />
+          <column-instance column='[Calculation_950]' derivation='User' name='[usr:Calculation_950:qk]' pivot='key' type='quantitative' />
+        </datasource-dependencies>
+      </view></table>
+    </worksheet>
+  </worksheets>
+</workbook>

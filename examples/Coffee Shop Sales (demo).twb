@@ -39,6 +39,7 @@
           <metadata-record class='column'><remote-name>TARGET</remote-name><local-name>[Target]</local-name><parent-name>[Targets]</parent-name><local-type>real</local-type></metadata-record>
         </metadata-records>
       </connection>
+      <column datatype='string' hidden='true' name='[Manager]' role='dimension' type='nominal' />
       <column caption='Revenue' datatype='real' name='[Calculation_101]' role='measure' type='quantitative'>
         <calculation class='tableau' formula='[Quantity] * [Unit Price] * (1 - [Discount])' />
       </column>

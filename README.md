@@ -13,6 +13,8 @@ Inheriting a Tableau dashboard usually means double-clicking fields for an after
 - **Unused fields**: calculations, parameters and raw columns that nothing uses, traced through every calculation, worksheet, dashboard and action
 - **Lineage**: for every field, what it is built from and everything that depends on it, down to worksheets and dashboards
 - **Data sources and tables**: every table each data source reads, with connection (server, database or file), live or extract, joins, relationships and the full Custom SQL text
+- **Published data sources**: the data source's name, server, site and project, its logical tables with their physical database names, which column comes from which table, and which calculations are defined on the server rather than in the workbook
+- **Hidden fields**: counted, filterable, and taken into account in the advice (an unused field that is already hidden needs no action)
 - **Duplicate calculations**: the same formula saved under different names (ignores spacing, case and comments)
 - **Review flags**: LOD expressions, table calculations, long or text-heavy formulas, `COUNTD`, `RAWSQL`, deep calculation chains
 - **Readable formulas**: internal IDs like `[Calculation_1238…]` replaced by field names
@@ -20,18 +22,25 @@ Inheriting a Tableau dashboard usually means double-clicking fields for an after
 
 ### Outputs
 
-**An interactive lineage diagram** (one HTML file, works offline): tables → fields → calculations → worksheets → dashboards. Search, filter, click a field to see its formula, and **Trace lineage** to highlight everything above and below it.
+**An interactive lineage diagram** (one HTML file, works offline): tables → fields → calculations → worksheets → dashboards.
 
-![Lineage diagram](docs/diagram.png)
+- Opens on a clean overview: each table is one box standing in for its columns, so large workbooks stay readable
+- **Show on diagram** picks exactly what is drawn: tables, columns, calculations / parameters / groups, worksheets & dashboards, each with an "include unused" option where it applies
+- Click any field to see its formula, source table, dependencies and where it's used
+- **Trace lineage** highlights everything above and below a field; **Show only this lineage** redraws just that path
+- Search highlights matches on the diagram (Enter jumps to the first), filters for unused, hidden, flagged and duplicate fields
+- Switch between left-to-right and top-to-bottom, and export the current view as a PNG
+
+![Lineage diagram with one field traced](docs/diagram.png)
 
 **An Excel audit** with one sheet per question:
 
 | Sheet | What it answers |
 |---|---|
 | Summary | How big is this workbook, and how much is unused or duplicated? |
-| Data Sources & Tables | Which tables does each data source read, from where, and how many of their columns are used? |
-| All Fields | Every field with its source table, readable formula, dependencies, usage status, worksheets and dashboards |
-| Unused | What can be removed or hidden, with advice per field |
+| Data Sources & Tables | Which tables does each data source read, from where (incl. server / site / project of published sources), and how many of their columns are used? |
+| All Fields | Every field with where it's defined (workbook or published source), its source table, readable formula, dependencies, usage status, hidden flag, worksheets and dashboards |
+| Unused | What can be removed or hidden, with advice that depends on whether it's hidden and where it's defined |
 | Duplicate Calcs | Which calculations have the same formula? |
 | Review Flags | Which calculations deserve a second look? |
 | Dependencies | Edge list of the lineage (field → calculation → worksheet), for your own analysis |
@@ -121,7 +130,7 @@ process_workbook("Sales.twbx", "outputs")   # writes the Excel audit and the HTM
 | Used (reported by Tableau) | Tableau lists it as a sheet dependency but the path could not be traced; treat as used |
 | Unused | Nothing in the workbook uses it |
 
-Treat **Unused** as a list to review, not a delete list. A workbook file cannot show usage in *other* workbooks that connect to the same published data source.
+Treat **Unused** as a list to review, not a delete list. A workbook file cannot show usage in *other* workbooks that connect to the same published data source, so calculations defined *in* a published data source are reported separately from the workbook's own ("Unused (workbook)" in the app).
 
 ### Review flags
 
@@ -188,7 +197,7 @@ The app is written to `dist\TWB_Inspector.exe`. Publish it as an asset of a GitH
 
 ## ⚠️ Limitations
 
-- Only what is saved in the workbook file is analysed. For a **published data source**, the underlying tables live on Tableau Server/Cloud and aren't in the file.
+- Only what is saved in the workbook file is analysed. For a **published data source**, the workbook stores its logical tables (and their physical names), but not the joins or Custom SQL text inside it; those live on Tableau Server/Cloud.
 - Queries Tableau generates at runtime are not stored in the file, so they can't be shown.
 - Review flags are static checks on formulas. They point at likely causes of slowness, but don't replace a Tableau performance recording.
 
